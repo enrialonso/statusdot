@@ -1,0 +1,32 @@
+{
+  "status": { "indicator": "major", "description": "Major Service Outage" },
+  "components": [
+    { "id": "a1", "name": "Git Operations", "status": "operational", "group": false },
+    { "id": "a2", "name": "API Requests", "status": "operational", "group": false },
+    { "id": "a3", "name": "Webhooks", "status": "operational", "group": false },
+    { "id": "a4", "name": "Issues", "status": "operational", "group": false },
+    { "id": "a5", "name": "Pull Requests", "status": "operational", "group": false },
+    { "id": "a6", "name": "Actions", "status": "major_outage", "group": false },
+    { "id": "a7", "name": "Packages", "status": "operational", "group": false },
+    { "id": "a8", "name": "Pages", "status": "operational", "group": false },
+    { "id": "a9", "name": "Codespaces", "status": "major_outage", "group": false },
+    { "id": "b1", "name": "Copilot", "status": "operational", "group": false },
+    { "id": "b2", "name": "Discussions", "status": "operational", "group": false },
+    { "id": "zz", "name": "Visit www.githubstatus.com for more information", "status": "operational", "group": false }
+  ],
+  "incidents": [
+    {
+      "id": "inc1",
+      "name": "Actions and Codespaces degraded performance",
+      "impact": "major",
+      "status": "investigating",
+      "started_at": "2026-06-07T10:00:00.000Z",
+      "created_at": "2026-06-07T10:00:00.000Z",
+      "incident_updates": [
+        { "body": "We are investigating reports of degraded performance.", "created_at": "2026-06-07T10:15:00.000Z" },
+        { "body": "The issue has been identified and a fix is being implemented.", "created_at": "2026-06-07T10:10:00.000Z" },
+        { "body": "We are continuing to monitor for any further issues.", "created_at": "2026-06-07T10:05:00.000Z" }
+      ]
+    }
+  ]
+}

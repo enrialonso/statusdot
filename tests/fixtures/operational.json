@@ -1,0 +1,18 @@
+{
+  "status": { "indicator": "none", "description": "All Systems Operational" },
+  "components": [
+    { "id": "a1", "name": "Git Operations", "status": "operational", "group": false },
+    { "id": "a2", "name": "API Requests", "status": "operational", "group": false },
+    { "id": "a3", "name": "Webhooks", "status": "operational", "group": false },
+    { "id": "a4", "name": "Issues", "status": "operational", "group": false },
+    { "id": "a5", "name": "Pull Requests", "status": "operational", "group": false },
+    { "id": "a6", "name": "Actions", "status": "operational", "group": false },
+    { "id": "a7", "name": "Packages", "status": "operational", "group": false },
+    { "id": "a8", "name": "Pages", "status": "operational", "group": false },
+    { "id": "a9", "name": "Codespaces", "status": "operational", "group": false },
+    { "id": "b1", "name": "Copilot", "status": "operational", "group": false },
+    { "id": "b2", "name": "Discussions", "status": "operational", "group": false },
+    { "id": "zz", "name": "Visit www.githubstatus.com for more information", "status": "operational", "group": false }
+  ],
+  "incidents": []
+}

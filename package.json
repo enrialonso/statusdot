@@ -1,0 +1,17 @@
+{
+    "name": "statusdot",
+    "type": "module",
+    "engines": {
+        "node": ">=22"
+    },
+    "scripts": {
+        "lint": "eslint src/",
+        "test": "vitest run",
+        "test:watch": "vitest"
+    },
+    "devDependencies": {
+        "@eslint/js": "10.0.1",
+        "eslint": "10.4.1",
+        "vitest": "4.1.8"
+    }
+}

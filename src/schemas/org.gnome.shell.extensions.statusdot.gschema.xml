@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+    <schema id="org.gnome.shell.extensions.statusdot"
+            path="/org/gnome/shell/extensions/statusdot/">
+        <key name="poll-interval" type="i">
+            <default>60</default>
+            <summary>Refresh interval</summary>
+            <description>Seconds between service status checks.</description>
+        </key>
+        <key name="disabled-providers" type="as">
+            <default>[]</default>
+            <summary>Disabled providers</summary>
+            <description>IDs of providers hidden from the panel.</description>
+        </key>
+        <key name="notifications-enabled" type="b">
+            <default>false</default>
+            <summary>Enable notifications</summary>
+            <description>Send a system notification when a service status changes.</description>
+        </key>
+    </schema>
+</schemalist>

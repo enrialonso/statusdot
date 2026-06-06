@@ -1,0 +1,8 @@
+{
+    "uuid": "statusdot@enrialonso.dev",
+    "name": "StatusDot",
+    "description": "Know when your services break — without opening a dashboard. A colored dot in your panel is all you need.",
+    "url": "https://github.com/enrialonso/statusdot",
+    "shell-version": ["45", "46", "47", "48", "49", "50"],
+    "settings-schema": "org.gnome.shell.extensions.statusdot"
+}
