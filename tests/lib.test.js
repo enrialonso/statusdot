@@ -3,6 +3,7 @@ import {readFileSync} from 'node:fs';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {stripHtml, wrapText, normalizeStatuspage, normalizeStatusio, normalizeSlack, SLACK_SERVICES} from '../src/lib.js';
+import {PROVIDERS} from '../src/providers-data.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixture = name => JSON.parse(
@@ -58,6 +59,15 @@ describe('wrapText', () => {
     it('preserves existing newlines between paragraphs', () => {
         const input = 'first paragraph\nsecond paragraph';
         expect(wrapText(input)).toBe(input);
+    });
+
+    it('handles empty string', () => {
+        expect(wrapText('')).toBe('');
+    });
+
+    it('does not break a single word longer than maxLen', () => {
+        const long = 'a'.repeat(100);
+        expect(wrapText(long, 40)).toBe(long);
     });
 });
 
@@ -181,6 +191,60 @@ describe('normalizeStatuspage', () => {
         expect(result.components).toHaveLength(2);
         expect(result.components.every(c => !c.children)).toBe(true);
     });
+
+    it('maps under_maintenance to degraded', () => {
+        const json = {
+            status: {indicator: 'minor'},
+            components: [{id: 'f1', name: 'API', group: false, group_id: null, status: 'under_maintenance'}],
+            incidents: [],
+        };
+        expect(normalizeStatuspage(json, SIMPLE).components[0].status).toBe('degraded');
+    });
+
+    it('falls back to unknown for unrecognized overall indicator', () => {
+        const json = {status: {indicator: 'catastrophic'}, components: [], incidents: []};
+        expect(normalizeStatuspage(json, SIMPLE).overallStatus).toBe('unknown');
+    });
+
+    it('falls back to unknown for unrecognized component status', () => {
+        const json = {
+            status: {indicator: 'none'},
+            components: [{id: 'f1', name: 'API', group: false, group_id: null, status: 'something_new'}],
+            incidents: [],
+        };
+        expect(normalizeStatuspage(json, SIMPLE).components[0].status).toBe('unknown');
+    });
+
+    it('preserves description on leaf components', () => {
+        const json = {
+            status: {indicator: 'none'},
+            components: [{id: 'f1', name: 'API', group: false, group_id: null, status: 'operational', description: 'The main API'}],
+            incidents: [],
+        };
+        expect(normalizeStatuspage(json, SIMPLE).components[0].description).toBe('The main API');
+    });
+
+    it('sets description to null when absent', () => {
+        const json = {
+            status: {indicator: 'none'},
+            components: [{id: 'f1', name: 'API', group: false, group_id: null, status: 'operational'}],
+            incidents: [],
+        };
+        expect(normalizeStatuspage(json, SIMPLE).components[0].description).toBeNull();
+    });
+
+    it('preserves description on group containers', () => {
+        const json = {
+            status: {indicator: 'none'},
+            components: [
+                {id: 'g1', name: 'Region', group: true,  group_id: null, status: 'operational', description: 'US Region'},
+                {id: 'c1', name: 'us-east', group: false, group_id: 'g1', status: 'operational'},
+            ],
+            incidents: [],
+        };
+        const region = normalizeStatuspage(json, SIMPLE).components.find(c => c.name === 'Region');
+        expect(region.description).toBe('US Region');
+    });
 });
 
 // ─── normalizeStatusio ────────────────────────────────────────────────────────
@@ -219,6 +283,52 @@ describe('normalizeStatusio', () => {
         const json = make(100, [{name: 'API', status_code: 300}]);
         const result = normalizeStatusio(json, SIMPLE);
         expect(result.components[0].status).toBe('partial_outage');
+    });
+
+    it('falls back to unknown for unrecognized status_code', () => {
+        expect(normalizeStatusio(make(999), SIMPLE).overallStatus).toBe('unknown');
+    });
+
+    it('parses incidents with impact and status', () => {
+        const json = make(300, [], [{
+            name: 'DB outage', impact: 300, status: 100,
+            started: new Date().toISOString(), updates: [],
+        }]);
+        const result = normalizeStatusio(json, SIMPLE);
+        expect(result.incidents).toHaveLength(1);
+        expect(result.incidents[0].name).toBe('DB outage');
+        expect(result.incidents[0].impact).toBe('partial_outage');
+        expect(result.incidents[0].status).toBe('investigating');
+    });
+
+    it('maps all STATUSIO_INCIDENT_STATUS codes', () => {
+        const makeInc = code => make(100, [], [{
+            name: 'x', impact: 100, status: code,
+            started: new Date().toISOString(), updates: [],
+        }]);
+        expect(normalizeStatusio(makeInc(100), SIMPLE).incidents[0].status).toBe('investigating');
+        expect(normalizeStatusio(makeInc(200), SIMPLE).incidents[0].status).toBe('identified');
+        expect(normalizeStatusio(makeInc(300), SIMPLE).incidents[0].status).toBe('monitoring');
+        expect(normalizeStatusio(makeInc(400), SIMPLE).incidents[0].status).toBe('resolved');
+    });
+
+    it('falls back to investigating for unknown incident status code', () => {
+        const json = make(100, [], [{
+            name: 'x', impact: 100, status: 999,
+            started: new Date().toISOString(), updates: [],
+        }]);
+        expect(normalizeStatusio(json, SIMPLE).incidents[0].status).toBe('investigating');
+    });
+
+    it('parses incident updates and strips HTML', () => {
+        const json = make(300, [], [{
+            name: 'DB outage', impact: 300, status: 100,
+            started: new Date().toISOString(),
+            updates: [{details: '<p>Engineers investigating</p>', datetime: new Date().toISOString()}],
+        }]);
+        const updates = normalizeStatusio(json, SIMPLE).incidents[0].updates;
+        expect(updates).toHaveLength(1);
+        expect(updates[0].body).toBe('Engineers investigating');
     });
 });
 
@@ -262,5 +372,59 @@ describe('normalizeSlack', () => {
         expect(messaging.status).toBe('partial_outage');
         expect(search.status).toBe('partial_outage');
         expect(login.status).toBe('operational');
+    });
+
+    it('parses incidents from active_incidents', () => {
+        const json = {
+            status: 'active',
+            active_incidents: [{
+                title: 'Messaging outage', date_created: new Date().toISOString(),
+                services: ['Messaging'], notes: [],
+            }],
+        };
+        const result = normalizeSlack(json, SIMPLE);
+        expect(result.incidents).toHaveLength(1);
+        expect(result.incidents[0].name).toBe('Messaging outage');
+        expect(result.incidents[0].impact).toBe('partial_outage');
+        expect(result.incidents[0].status).toBe('investigating');
+    });
+
+    it('parses incident notes as updates and strips HTML', () => {
+        const now = new Date().toISOString();
+        const json = {
+            status: 'active',
+            active_incidents: [{
+                title: 'Outage', date_created: now, services: ['Messaging'],
+                notes: [{body: '<p>We are looking into it</p>', date_created: now}],
+            }],
+        };
+        const updates = normalizeSlack(json, SIMPLE).incidents[0].updates;
+        expect(updates).toHaveLength(1);
+        expect(updates[0].body).toBe('We are looking into it');
+    });
+});
+
+// ─── PROVIDERS data integrity ─────────────────────────────────────────────────
+
+describe('PROVIDERS', () => {
+    it('every provider has required fields', () => {
+        for (const p of PROVIDERS) {
+            expect(p.id,   `${p.name ?? '?'} missing id`).toBeTruthy();
+            expect(p.name, `${p.id} missing name`).toBeTruthy();
+            expect(p.url,  `${p.id} missing url`).toBeTruthy();
+            expect(p.web,  `${p.id} missing web`).toBeTruthy();
+            expect(p.icon, `${p.id} missing icon`).toBeTruthy();
+        }
+    });
+
+    it('all provider ids are unique', () => {
+        const ids = PROVIDERS.map(p => p.id);
+        expect(new Set(ids).size).toBe(ids.length);
+    });
+
+    it('type field is either absent or a known value', () => {
+        const validTypes = new Set(['statusio', 'slack', undefined]);
+        for (const p of PROVIDERS)
+            expect(validTypes.has(p.type), `${p.id} has unknown type: ${p.type}`).toBe(true);
     });
 });
