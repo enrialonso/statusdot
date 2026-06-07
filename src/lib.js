@@ -65,16 +65,30 @@ export function wrapText(text, maxLen = 80) {
 // ─── Normalizers ──────────────────────────────────────────────────────────────
 
 export function normalizeStatuspage(json, provider) {
+    const allComps = json.components ?? [];
+    const groupMap = new Map();
+    const components = [];
+
+    for (const c of allComps) {
+        if (!c.group || provider.hidden?.has(c.name)) continue;
+        const g = {name: c.name, status: COMPONENT_STATUS_MAP[c.status] ?? 'unknown', children: []};
+        groupMap.set(c.id, g);
+        components.push(g);
+    }
+    for (const c of allComps) {
+        if (c.group || provider.hidden?.has(c.name)) continue;
+        const entry = {name: c.name, status: COMPONENT_STATUS_MAP[c.status] ?? 'unknown'};
+        if (c.group_id && groupMap.has(c.group_id))
+            groupMap.get(c.group_id).children.push(entry);
+        else
+            components.push(entry);
+    }
+
     return {
         id:            provider.id,
         name:          provider.name,
         overallStatus: OVERALL_STATUS_MAP[json.status?.indicator] ?? 'unknown',
-        components:    (json.components ?? [])
-            .filter(c => !c.group && !(provider.hidden?.has(c.name)))
-            .map(c => ({
-                name:   c.name,
-                status: COMPONENT_STATUS_MAP[c.status] ?? 'unknown',
-            })),
+        components,
         incidents: (json.incidents ?? []).map(i => ({
             name:      i.name,
             impact:    OVERALL_STATUS_MAP[i.impact] ?? 'unknown',

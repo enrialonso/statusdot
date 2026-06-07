@@ -128,6 +128,59 @@ describe('normalizeStatuspage', () => {
         expect(result.id).toBe('github');
         expect(result.name).toBe('GitHub');
     });
+
+    it('attaches children to their group and excludes them from top level', () => {
+        const json = {
+            status: {indicator: 'none'},
+            components: [
+                {id: 'g1', name: 'Europe',  group: true,  group_id: null, status: 'partial_outage'},
+                {id: 'c1', name: 'Paris',   group: false, group_id: 'g1', status: 'partial_outage'},
+                {id: 'c2', name: 'Berlin',  group: false, group_id: 'g1', status: 'operational'},
+                {id: 'f1', name: 'API',     group: false, group_id: null, status: 'operational'},
+            ],
+            incidents: [],
+        };
+        const result = normalizeStatuspage(json, SIMPLE);
+        const topNames = result.components.map(c => c.name);
+        expect(topNames).toContain('Europe');
+        expect(topNames).toContain('API');
+        expect(topNames).not.toContain('Paris');
+        expect(topNames).not.toContain('Berlin');
+        const europe = result.components.find(c => c.name === 'Europe');
+        expect(europe.children).toHaveLength(2);
+        expect(europe.children.map(c => c.name)).toContain('Paris');
+        expect(europe.children.map(c => c.name)).toContain('Berlin');
+    });
+
+    it('maps group container status correctly', () => {
+        const json = {
+            status: {indicator: 'minor'},
+            components: [
+                {id: 'g1', name: 'US Region', group: true,  group_id: null, status: 'degraded_performance'},
+                {id: 'c1', name: 'us-east-1', group: false, group_id: 'g1', status: 'degraded_performance'},
+            ],
+            incidents: [],
+        };
+        const result = normalizeStatuspage(json, SIMPLE);
+        expect(result.components).toHaveLength(1);
+        expect(result.components[0].name).toBe('US Region');
+        expect(result.components[0].status).toBe('degraded');
+        expect(result.components[0].children[0].name).toBe('us-east-1');
+    });
+
+    it('flat components without group_id remain at top level', () => {
+        const json = {
+            status: {indicator: 'none'},
+            components: [
+                {id: 'f1', name: 'API',     group: false, group_id: null, status: 'operational'},
+                {id: 'f2', name: 'Billing', group: false, group_id: null, status: 'operational'},
+            ],
+            incidents: [],
+        };
+        const result = normalizeStatuspage(json, SIMPLE);
+        expect(result.components).toHaveLength(2);
+        expect(result.components.every(c => !c.children)).toBe(true);
+    });
 });
 
 // ─── normalizeStatusio ────────────────────────────────────────────────────────

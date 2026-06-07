@@ -4,3 +4,4 @@ dist/
 src/schemas/gschemas.compiled
 CLAUDE.md
 .claude/
+design/

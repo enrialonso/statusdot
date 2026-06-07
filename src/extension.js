@@ -420,8 +420,12 @@ export default class StatusDotExtension extends Extension {
         );
         if (sorted.length > 0) {
             this._sectionLabel(this._content, 'Components');
-            for (const c of sorted)
-                this._dotRow(this._content, c.name, c.status);
+            for (const c of sorted) {
+                if (c.children?.length > 0)
+                    this._groupRow(this._content, c);
+                else
+                    this._dotRow(this._content, c.name, c.status);
+            }
         }
 
         this._incidents.destroy_all_children();
@@ -556,6 +560,31 @@ export default class StatusDotExtension extends Extension {
         row.add_child(new St.Label({ text, x_expand: true }));
         row.add_child(new St.Label({ text: '●', style_class: colorClass(status) }));
         container.add_child(row);
+    }
+
+    _groupRow(container, group) {
+        const chevron = new St.Label({text: '▸', style_class: 'statusdot-group-chevron', y_align: Clutter.ActorAlign.CENTER});
+
+        const row = new St.BoxLayout({x_expand: true, style: 'spacing: 6px;'});
+        row.add_child(chevron);
+        row.add_child(new St.Label({text: group.name, x_expand: true, y_align: Clutter.ActorAlign.CENTER}));
+        row.add_child(new St.Label({text: '●', style_class: colorClass(group.status), y_align: Clutter.ActorAlign.CENTER}));
+
+        const toggleBtn = new St.Button({style_class: 'statusdot-group-toggle', x_expand: true});
+        toggleBtn.set_child(row);
+
+        const childrenBox = new St.BoxLayout({vertical: true, visible: false, style: 'padding-left: 16px;'});
+        const sorted = [...group.children].sort((a, b) => (SEVERITY_ORDER[a.status] ?? 3) - (SEVERITY_ORDER[b.status] ?? 3));
+        for (const child of sorted)
+            this._dotRow(childrenBox, child.name, child.status);
+
+        toggleBtn.connect('clicked', () => {
+            childrenBox.visible = !childrenBox.visible;
+            chevron.text = childrenBox.visible ? '▾' : '▸';
+        });
+
+        container.add_child(toggleBtn);
+        container.add_child(childrenBox);
     }
 
     // ── Incidents ─────────────────────────────────────────────────────────────
