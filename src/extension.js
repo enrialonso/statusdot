@@ -106,14 +106,19 @@ export default class StatusDotExtension extends Extension {
         this._statuses            = {};    // providerId → normalized status
         this._currentProviderId   = null;  // null = grid view
         this._currentPanelWidth   = PANEL_WIDTH;
+        this._settingsSig1        = null;
+        this._settingsSig2        = null;
+        this._panelKeySig         = null;
+        this._overlayBtnSig       = null;
+        this._refreshBtnSig       = null;
 
         try {
             this._settings = this.getSettings();
-            this._settings.connect('changed::poll-interval', () => {
+            this._settingsSig1 = this._settings.connect('changed::poll-interval', () => {
                 this._stopPolling();
                 this._startPolling();
             });
-            this._settings.connect('changed::disabled-providers', () => {
+            this._settingsSig2 = this._settings.connect('changed::disabled-providers', () => {
                 const active = this._activeProviders();
                 if (this._currentProviderId && !active.find(p => p.id === this._currentProviderId))
                     this._currentProviderId = null;
@@ -135,10 +140,35 @@ export default class StatusDotExtension extends Extension {
     disable() {
         this._stopPolling();
         this._stopSpinner();
+
+        // Disconnect settings signals (foreign object — not destroyed by us)
+        if (this._settings) {
+            if (this._settingsSig1) this._settings.disconnect(this._settingsSig1);
+            if (this._settingsSig2) this._settings.disconnect(this._settingsSig2);
+        }
+
+        // Disconnect owned-object signals before destroying them
+        if (this._panel && this._panelKeySig)         this._panel.disconnect(this._panelKeySig);
+        if (this._overlay && this._overlayBtnSig)     this._overlay.disconnect(this._overlayBtnSig);
+        if (this._refreshBtn && this._refreshBtnSig)  this._refreshBtn.disconnect(this._refreshBtnSig);
+
         this._hidePanel();
+        this._session?.abort();
+
+        // Explicit destroy for child widgets (panel.destroy cascades, but listed for EGO-L-002)
+        this._dot?.destroy();
+        this._refreshLabel?.destroy();
+        this._refreshIcon?.destroy();
+        this._header?.destroy();
+        this._gridContainer?.destroy();
+        this._content?.destroy();
+        this._scroll?.destroy();
+        this._incidents?.destroy();
+        this._refreshBtn?.destroy();
         this._overlay?.destroy();
         this._panel?.destroy();
         this._button?.destroy();
+
         this._button            = null;
         this._dot               = null;
         this._overlay           = null;
@@ -164,6 +194,11 @@ export default class StatusDotExtension extends Extension {
         this._isErrorState        = false;
         this._currentProviderId   = null;
         this._currentPanelWidth   = PANEL_WIDTH;
+        this._settingsSig1        = null;
+        this._settingsSig2        = null;
+        this._panelKeySig         = null;
+        this._overlayBtnSig       = null;
+        this._refreshBtnSig       = null;
     }
 
     _buildUI() {
@@ -232,11 +267,11 @@ export default class StatusDotExtension extends Extension {
         btnContent.add_child(this._refreshIcon);
         this._refreshBtn = new St.Button({ style_class: 'statusdot-refresh-button' });
         this._refreshBtn.set_child(btnContent);
-        this._refreshBtn.connect('clicked', () => this._refresh(true));
+        this._refreshBtnSig = this._refreshBtn.connect('clicked', () => this._refresh(true));
         footer.add_child(this._refreshBtn);
         this._panel.add_child(footer);
 
-        this._panel.connect('key-press-event', (_a, event) => {
+        this._panelKeySig = this._panel.connect('key-press-event', (_a, event) => {
             if (event.get_key_symbol() === Clutter.KEY_Escape) {
                 this._hidePanel();
                 return Clutter.EVENT_STOP;
@@ -246,7 +281,7 @@ export default class StatusDotExtension extends Extension {
 
         this._overlay = new St.Widget({ reactive: true });
         this._overlay.hide();
-        this._overlay.connect('button-press-event', () => {
+        this._overlayBtnSig = this._overlay.connect('button-press-event', () => {
             this._hidePanel();
             return Clutter.EVENT_PROPAGATE;
         });
@@ -989,7 +1024,6 @@ export default class StatusDotExtension extends Extension {
                     anySuccess = true;
                     const prev = this._statuses[provider.id]?.overallStatus;
                     this._statuses[provider.id] = status;
-                    console.log(`[StatusDot] ${provider.name}: ok (${ms}ms)`);
                     const next = status.overallStatus;
                     if (this._settings?.get_boolean('notifications-enabled') &&
                         prev && prev !== next &&

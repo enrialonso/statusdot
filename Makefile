@@ -3,7 +3,7 @@ INSTALL_DIR    = $(HOME)/.local/share/gnome-shell/extensions/$(EXTENSION_UUID)
 SRC_DIR        = src
 DIST_DIR       = dist/$(EXTENSION_UUID)
 
-.PHONY: help setup lint test check sync install uninstall enable disable run pack restart clean
+.PHONY: help setup lint test check shexli _zip sync install uninstall enable disable run pack restart clean
 
 help:
 	@echo "Dev"
@@ -20,7 +20,8 @@ help:
 	@echo "  disable  disable the extension"
 	@echo "  run      launch isolated nested Wayland session"
 	@echo "  restart  uninstall + install + run"
-	@echo "  pack     lint + test, then build submission ZIP in dist/"
+	@echo "  shexli   build ZIP and run GNOME Extensions submission linter on it"
+	@echo "  pack     lint + test + shexli, then build submission ZIP in dist/"
 	@echo "  clean    remove dist/ and node_modules/"
 
 # ── Dev ───────────────────────────────────────────────────────────────────────
@@ -36,6 +37,20 @@ test:
 
 check: lint test
 
+shexli: _zip
+	@( command -v shexli >/dev/null 2>&1 || ( [ -f .venv/bin/shexli ] && . .venv/bin/activate ) ) || \
+		{ echo "shexli not found — install with: pip install -U shexli"; exit 1; }
+	. .venv/bin/activate 2>/dev/null; shexli dist/$(EXTENSION_UUID).zip
+
+# Internal: build the ZIP without gates (used by shexli and pack)
+_zip:
+	rm -rf dist
+	mkdir -p $(DIST_DIR)
+	cp -r $(SRC_DIR)/. $(DIST_DIR)/
+	glib-compile-schemas $(DIST_DIR)/schemas/
+	rm -f $(DIST_DIR)/schemas/gschemas.compiled
+	cd $(DIST_DIR) && zip -r ../$(EXTENSION_UUID).zip .
+
 # ── Extension ─────────────────────────────────────────────────────────────────
 
 # Copy source files to the GNOME extensions directory (dev workflow)
@@ -45,12 +60,7 @@ sync:
 	glib-compile-schemas $(INSTALL_DIR)/schemas/
 
 # Build submission ZIP into dist/ (excludes dev-only files)
-pack: check
-	rm -rf dist
-	mkdir -p $(DIST_DIR)
-	cp -r $(SRC_DIR)/. $(DIST_DIR)/
-	glib-compile-schemas $(DIST_DIR)/schemas/
-	cd $(DIST_DIR) && zip -r ../$(EXTENSION_UUID).zip .
+pack: check shexli
 
 # Copy + enable in one step
 install: sync
