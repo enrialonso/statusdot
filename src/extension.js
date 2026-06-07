@@ -28,9 +28,9 @@ const COLOR_CLASS = {
 // Internal status → display label
 const STATUS_LABEL = {
     operational:    'Operational',
-    degraded:       'Degraded',
-    partial_outage: 'Partial Outage',
-    major_outage:   'Major Outage',
+    degraded:       'Degraded performance',
+    partial_outage: 'Partial outage',
+    major_outage:   'Major outage',
     unknown:        'Unknown',
 };
 
@@ -75,7 +75,7 @@ function formatRelative(date) {
 // ─── Extension ────────────────────────────────────────────────────────────────
 
 const PANEL_WIDTH      = 440;                          // detail view
-const GRID_PANEL_WIDTH = 32 + 4 * 80 + 3 * 12;        // 388px — always 4-col wide
+const GRID_PANEL_WIDTH = 32 + 4 * 76 + 3 * 12;        // 372px — always 4-col wide
 const SPINNER_FRAMES   = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 
@@ -329,24 +329,62 @@ export default class StatusDotExtension extends Extension {
     // ── Grid view ─────────────────────────────────────────────────────────────
 
     _renderGrid() {
-        this._header.destroy_all_children();
-        this._header.add_child(new St.Label({
-            text: 'Service Status',
-            style: 'font-size: 15px; font-weight: bold;',
-        }));
-
         this._content.destroy_all_children();
         this._incidents.destroy_all_children();
         this._incidents.hide();
-
-        // Grid lives in _gridContainer (outside ScrollView) so its natural
-        // size drives the panel width — no explicit width calculation needed.
         this._gridContainer.destroy_all_children();
         this._scroll.hide();
         this._gridContainer.show();
         this._applyPanelWidth(GRID_PANEL_WIDTH);
 
-        const active = this._activeProviders();
+        const active  = this._activeProviders();
+        const worst   = this._worstStatus();
+        const troubled = active
+            .filter(p => {
+                const s = this._statuses[p.id]?.overallStatus;
+                return s && s !== 'operational' && s !== 'unknown';
+            })
+            .sort((a, b) =>
+                (SEVERITY_ORDER[this._statuses[a.id].overallStatus] ?? 3) -
+                (SEVERITY_ORDER[this._statuses[b.id].overallStatus] ?? 3)
+            );
+        const allGood = troubled.length === 0;
+        const opCount = active.filter(p => this._statuses[p.id]?.overallStatus === 'operational').length;
+
+        // ── Header ────────────────────────────────────────────────────────────
+        this._header.destroy_all_children();
+        const titleRow = new St.BoxLayout({ style: 'spacing: 8px;' });
+        titleRow.add_child(new St.Label({
+            text: '●',
+            style_class: colorClass(worst),
+            style: 'font-size: 13px;',
+            y_align: Clutter.ActorAlign.CENTER,
+        }));
+        titleRow.add_child(new St.Label({
+            text: allGood
+                ? 'All systems operational'
+                : `${troubled.length} service${troubled.length !== 1 ? 's' : ''} need attention`,
+            style: 'font-size: 15px; font-weight: bold;',
+            y_align: Clutter.ActorAlign.CENTER,
+        }));
+        this._header.add_child(titleRow);
+        this._header.add_child(new St.Label({
+            text: `${opCount} operational · ${active.length} monitored`,
+            style_class: 'dim-label',
+            style: 'font-size: 12px; margin-top: 2px;',
+        }));
+
+        // ── Alert cards (non-operational providers) ───────────────────────────
+        if (!allGood) {
+            const alertBox = new St.BoxLayout({ vertical: true, style: 'padding-top: 8px;' });
+            for (const provider of troubled)
+                alertBox.add_child(this._buildAlertCard(provider));
+            this._gridContainer.add_child(alertBox);
+        }
+
+        // ── Section label + grid ──────────────────────────────────────────────
+        this._sectionLabel(this._gridContainer, allGood ? 'SERVICES' : 'ALL SERVICES');
+
         const grid = new St.BoxLayout({ vertical: true, style: 'spacing: 12px; padding-top: 8px;' });
         for (let i = 0; i < active.length; i += 4) {
             const row = new St.BoxLayout({ style: 'spacing: 12px;' });
@@ -355,7 +393,77 @@ export default class StatusDotExtension extends Extension {
             grid.add_child(row);
         }
         this._gridContainer.add_child(grid);
+    }
 
+    _buildAlertCard(provider) {
+        const status = this._statuses[provider.id];
+        const gicon  = Gio.icon_new_for_string(`${this.path}/icons/${provider.icon}.svg`);
+        const cls    = colorClass(status.overallStatus);
+
+        const worstComp = [...status.components]
+            .filter(c => c.status !== 'operational')
+            .sort((a, b) => (SEVERITY_ORDER[a.status] ?? 3) - (SEVERITY_ORDER[b.status] ?? 3))[0];
+
+        // Left accent bar
+        const bar = new St.Widget({
+            style_class: `statusdot-alert-bar ${cls}`,
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+
+        // Provider icon (inherits status color via CSS cascade)
+        const icon = new St.Icon({ gicon, icon_size: 20, y_align: Clutter.ActorAlign.CENTER });
+
+        // Text column
+        const nameLabel = new St.Label({
+            text:  provider.name,
+            style: 'font-weight: bold; font-size: 13px; color: rgba(255,255,255,0.94);',
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+
+        const subRow = new St.BoxLayout({});
+        subRow.add_child(new St.Label({
+            text:        statusLabel(status.overallStatus),
+            style_class: cls,
+            style:       'font-size: 11px;',
+        }));
+        if (worstComp) {
+            subRow.add_child(new St.Label({
+                text:        ` · ${worstComp.name}`,
+                style_class: 'dim-label',
+                style:       'font-size: 11px;',
+            }));
+        }
+
+        const textCol = new St.BoxLayout({ vertical: true, x_expand: true });
+        textCol.add_child(nameLabel);
+        textCol.add_child(subRow);
+
+        const chevron = new St.Label({
+            text:    '›',
+            style:   'font-size: 16px; color: rgba(255,255,255,0.38);',
+            y_align: Clutter.ActorAlign.CENTER,
+        });
+
+        const contentRow = new St.BoxLayout({ x_expand: true, style: 'spacing: 8px; padding: 10px 10px 10px 8px;' });
+        contentRow.add_child(icon);
+        contentRow.add_child(textCol);
+        contentRow.add_child(chevron);
+
+        const cardBox = new St.BoxLayout({ x_expand: true });
+        cardBox.add_child(bar);
+        cardBox.add_child(contentRow);
+
+        const btn = new St.Button({
+            style_class: `statusdot-alert-card ${cls}`,
+            x_expand: true,
+        });
+        btn.set_child(cardBox);
+        btn.connect('clicked', () => {
+            this._currentProviderId = provider.id;
+            this._incidentExpanded  = false;
+            this._renderCurrentView();
+        });
+        return btn;
     }
 
     _buildProviderCard(provider, status) {
@@ -375,10 +483,8 @@ export default class StatusDotExtension extends Extension {
 
         const dotRow = new St.BoxLayout({ x_expand: true, style_class: 'statusdot-card-row' });
         dotRow.add_child(new St.Widget({ x_expand: true }));
-        dotRow.add_child(new St.Label({
-            text: '●',
-            style_class: colorClass(status?.overallStatus ?? 'unknown'),
-            style: 'font-size: 9px; margin: 0 4px 3px 0;',
+        dotRow.add_child(new St.Widget({
+            style_class: `statusdot-tile-dot ${colorClass(status?.overallStatus ?? 'unknown')}`,
         }));
 
         const col = new St.BoxLayout({ vertical: true, x_expand: true, y_expand: true });
@@ -386,7 +492,11 @@ export default class StatusDotExtension extends Extension {
         col.add_child(iconBin);
         col.add_child(dotRow);
 
-        const btn = new St.Button({ style_class: 'statusdot-provider-card', reactive: true });
+        const isAlert = status?.overallStatus && status.overallStatus !== 'operational' && status.overallStatus !== 'unknown';
+        const btn = new St.Button({
+            style_class: `statusdot-provider-card${isAlert ? ` ${colorClass(status.overallStatus)}` : ''}`,
+            reactive: true,
+        });
         btn.set_child(col);
         btn.connect('clicked', () => {
             this._currentProviderId = provider.id;
@@ -397,9 +507,10 @@ export default class StatusDotExtension extends Extension {
         const wrapper = new St.BoxLayout({ vertical: true, style: 'spacing: 4px;' });
         wrapper.add_child(btn);
         wrapper.add_child(new St.Label({
-            text: provider.name,
-            style: 'font-size: 11px;',
-            x_align: Clutter.ActorAlign.CENTER,
+            text:        provider.name,
+            style_class: 'dim-label',
+            style:       'font-size: 11px;',
+            x_align:     Clutter.ActorAlign.CENTER,
         }));
         return wrapper;
     }
@@ -445,7 +556,7 @@ export default class StatusDotExtension extends Extension {
 
         this._header.destroy_all_children();
         this._header.add_child(new St.Label({
-            text: 'Service Status',
+            text: 'No providers enabled',
             style: 'font-size: 15px; font-weight: bold;',
         }));
 
@@ -469,7 +580,7 @@ export default class StatusDotExtension extends Extension {
 
         this._header.destroy_all_children();
         this._header.add_child(new St.Label({
-            text: 'Service Status',
+            text: 'Could not reach services',
             style: 'font-size: 15px; font-weight: bold;',
         }));
 
