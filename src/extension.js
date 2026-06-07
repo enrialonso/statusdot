@@ -148,12 +148,22 @@ export default class StatusDotExtension extends Extension {
         this._scroll            = null;
         this._content           = null;
         this._incidents         = null;
-        this._refreshBtn        = null;
-        this._refreshLabel      = null;
-        this._refreshIcon       = null;
-        this._statuses          = {};
-        this._settings          = null;
-        this._session           = null;
+        this._refreshBtn          = null;
+        this._refreshLabel        = null;
+        this._refreshIcon         = null;
+        this._statuses            = {};
+        this._settings            = null;
+        this._session             = null;
+        this._fetching            = false;
+        this._consecutiveErrors   = 0;
+        this._spinnerTimer        = null;
+        this._spinnerStopTimer    = null;
+        this._spinnerFrame        = 0;
+        this._refreshStart        = 0;
+        this._incidentExpanded    = false;
+        this._isErrorState        = false;
+        this._currentProviderId   = null;
+        this._currentPanelWidth   = PANEL_WIDTH;
     }
 
     _buildUI() {
@@ -401,8 +411,15 @@ export default class StatusDotExtension extends Extension {
         const cls    = colorClass(status.overallStatus);
 
         const worstComp = [...status.components]
-            .filter(c => c.status !== 'operational')
-            .sort((a, b) => (SEVERITY_ORDER[a.status] ?? 3) - (SEVERITY_ORDER[b.status] ?? 3))[0];
+            .map(c => {
+                const eff = c.children?.length > 0
+                    ? [c.status, ...c.children.map(ch => ch.status)]
+                        .sort((a, b) => (SEVERITY_ORDER[a] ?? 3) - (SEVERITY_ORDER[b] ?? 3))[0]
+                    : c.status;
+                return {c, eff};
+            })
+            .filter(({eff}) => eff !== 'operational' && eff !== 'unknown')
+            .sort((a, b) => (SEVERITY_ORDER[a.eff] ?? 3) - (SEVERITY_ORDER[b.eff] ?? 3))[0]?.c;
 
         // Left accent bar
         const bar = new St.Widget({
@@ -485,6 +502,7 @@ export default class StatusDotExtension extends Extension {
         dotRow.add_child(new St.Widget({ x_expand: true }));
         dotRow.add_child(new St.Widget({
             style_class: `statusdot-tile-dot ${colorClass(status?.overallStatus ?? 'unknown')}`,
+            y_align: Clutter.ActorAlign.CENTER,
         }));
 
         const col = new St.BoxLayout({ vertical: true, x_expand: true, y_expand: true });
@@ -526,16 +544,51 @@ export default class StatusDotExtension extends Extension {
         this._buildDetailHeader(status);
 
         this._content.destroy_all_children();
-        const sorted = [...status.components].sort(
-            (a, b) => (SEVERITY_ORDER[a.status] ?? 3) - (SEVERITY_ORDER[b.status] ?? 3)
-        );
-        if (sorted.length > 0) {
-            this._sectionLabel(this._content, 'Components');
-            for (const c of sorted) {
-                if (c.children?.length > 0)
-                    this._groupRow(this._content, c);
-                else
-                    this._dotRow(this._content, c.name, c.status);
+        if (status.components.length > 0) {
+            const affected = [];
+            const operational = [];
+            for (const c of status.components) {
+                const eff = c.children?.length > 0
+                    ? [c.status, ...c.children.map(ch => ch.status)]
+                        .sort((a, b) => (SEVERITY_ORDER[a] ?? 3) - (SEVERITY_ORDER[b] ?? 3))[0]
+                    : c.status;
+                if (eff !== 'operational' && eff !== 'unknown') affected.push({component: c, eff});
+                else operational.push(c);
+            }
+            if (affected.length > 0) {
+                this._sectionLabel(this._content, 'AFFECTED');
+                const limit = 3;
+                const visible = affected.slice(0, limit);
+                const hidden  = affected.slice(limit);
+                for (const {component, eff} of visible)
+                    this._content.add_child(this._buildDetailAffectedCard(component, eff));
+                if (hidden.length > 0) {
+                    const hiddenBox = new St.BoxLayout({ vertical: true, visible: false });
+                    for (const {component, eff} of hidden)
+                        hiddenBox.add_child(this._buildDetailAffectedCard(component, eff));
+                    const showMoreBtn = new St.Button({ style_class: 'statusdot-show-more-btn', x_expand: true });
+                    const showMoreLbl = new St.Label({
+                        text: `Show ${hidden.length} more affected`,
+                        style_class: 'dim-label',
+                        style: 'font-size: 12px;',
+                        x_align: Clutter.ActorAlign.CENTER,
+                        y_align: Clutter.ActorAlign.CENTER,
+                    });
+                    showMoreBtn.set_child(showMoreLbl);
+                    showMoreBtn.connect('clicked', () => {
+                        hiddenBox.show();
+                        showMoreBtn.hide();
+                    });
+                    this._content.add_child(showMoreBtn);
+                    this._content.add_child(hiddenBox);
+                }
+            }
+            if (operational.length > 0) {
+                this._sectionLabel(this._content, affected.length > 0 ? 'OPERATIONAL' : 'COMPONENTS');
+                for (const c of operational) {
+                    if (c.children?.length > 0) this._groupRow(this._content, c);
+                    else this._dotRow(this._content, c.name, c.status);
+                }
             }
         }
 
@@ -640,14 +693,95 @@ export default class StatusDotExtension extends Extension {
         row.add_child(this._buildStatusPill(status.overallStatus));
         this._header.add_child(row);
 
-        if (status.components.length > 0) {
-            const ok = status.components.filter(c => c.status === 'operational').length;
+        const leaves = [];
+        for (const c of status.components) {
+            if (c.children?.length > 0) for (const ch of c.children) leaves.push(ch.status);
+            else leaves.push(c.status);
+        }
+        if (leaves.length > 0) {
+            const ok = leaves.filter(s => s === 'operational').length;
             this._header.add_child(new St.Label({
-                text: `${ok}/${status.components.length} components operational`,
+                text: `${ok}/${leaves.length} components operational`,
                 style_class: 'dim-label',
                 style: 'margin-top: 2px; font-size: 12px;',
             }));
+            const MAX_SEGMENTS = 40;
+            const segments = leaves.length <= MAX_SEGMENTS ? leaves : Array.from({length: MAX_SEGMENTS}, (_, i) => {
+                const start = Math.floor(i * leaves.length / MAX_SEGMENTS);
+                const end   = Math.floor((i + 1) * leaves.length / MAX_SEGMENTS);
+                return leaves.slice(start, end).sort((a, b) => (SEVERITY_ORDER[a] ?? 3) - (SEVERITY_ORDER[b] ?? 3))[0];
+            });
+            const progressBar = new St.BoxLayout({ style: 'spacing: 2px; padding-top: 8px;' });
+            for (const s of segments) {
+                progressBar.add_child(new St.Widget({
+                    style_class: `statusdot-progress-segment ${colorClass(s)}`,
+                    x_expand: true,
+                }));
+            }
+            this._header.add_child(progressBar);
         }
+    }
+
+    _buildDetailAffectedCard(component, effectiveStatus) {
+        const cls = colorClass(effectiveStatus);
+
+        const bar = new St.Widget({
+            style_class: `statusdot-alert-bar ${cls}`,
+            y_align: Clutter.ActorAlign.FILL,
+        });
+
+        const textCol = new St.BoxLayout({ vertical: true, x_expand: true });
+        textCol.add_child(new St.Label({
+            text: component.name,
+            style: 'font-weight: bold; font-size: 13px;',
+            y_align: Clutter.ActorAlign.CENTER,
+        }));
+        if (component.description) {
+            const desc = new St.Label({
+                text: component.description,
+                style_class: 'dim-label',
+                style: 'font-size: 11px; margin-top: 2px;',
+            });
+            desc.clutter_text.line_wrap = true;
+            desc.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+            textCol.add_child(desc);
+        } else if (component.children?.length > 0) {
+            const n = component.children.filter(ch => ch.status !== 'operational' && ch.status !== 'unknown').length;
+            if (n > 0) {
+                textCol.add_child(new St.Label({
+                    text: `${n}/${component.children.length} sub-components affected`,
+                    style_class: 'dim-label',
+                    style: 'font-size: 11px; margin-top: 2px;',
+                }));
+            }
+        }
+
+        const rightCol = new St.BoxLayout({ style: 'spacing: 6px;', y_align: Clutter.ActorAlign.CENTER });
+        rightCol.add_child(new St.Label({
+            text: statusLabel(effectiveStatus),
+            style_class: cls,
+            style: 'font-size: 11px;',
+            y_align: Clutter.ActorAlign.CENTER,
+        }));
+        rightCol.add_child(new St.Widget({
+            style_class: `statusdot-row-dot ${cls}`,
+            y_align: Clutter.ActorAlign.CENTER,
+        }));
+
+        const contentRow = new St.BoxLayout({ x_expand: true, style: 'spacing: 8px; padding: 10px 10px 10px 8px;' });
+        contentRow.add_child(textCol);
+        contentRow.add_child(rightCol);
+
+        const cardBox = new St.BoxLayout({ x_expand: true });
+        cardBox.add_child(bar);
+        cardBox.add_child(contentRow);
+
+        const card = new St.BoxLayout({
+            style_class: `statusdot-alert-card ${cls}`,
+            x_expand: true,
+        });
+        card.add_child(cardBox);
+        return card;
     }
 
     _buildStatusPill(status) {
@@ -655,7 +789,10 @@ export default class StatusDotExtension extends Extension {
             style_class: `statusdot-status-pill ${colorClass(status)}`,
             y_align: Clutter.ActorAlign.CENTER,
         });
-        pill.add_child(new St.Label({ text: '●', style_class: colorClass(status), style: 'font-size: 10px;', y_align: Clutter.ActorAlign.CENTER }));
+        pill.add_child(new St.Widget({
+            style_class: `statusdot-row-dot ${colorClass(status)}`,
+            y_align: Clutter.ActorAlign.CENTER,
+        }));
         pill.add_child(new St.Label({ text: statusLabel(status), style: 'font-size: 13px;', y_align: Clutter.ActorAlign.CENTER }));
         return pill;
     }
@@ -667,9 +804,20 @@ export default class StatusDotExtension extends Extension {
     }
 
     _dotRow(container, text, status) {
-        const row = new St.BoxLayout({ style: 'padding: 6px 0;' });
-        row.add_child(new St.Label({ text, x_expand: true }));
-        row.add_child(new St.Label({ text: '●', style_class: colorClass(status) }));
+        const row = new St.BoxLayout({ style: 'padding: 5px 0; spacing: 8px;' });
+        row.add_child(new St.Label({ text, x_expand: true, y_align: Clutter.ActorAlign.CENTER }));
+        if (status !== 'operational' && status !== 'unknown') {
+            row.add_child(new St.Label({
+                text: statusLabel(status),
+                style_class: colorClass(status),
+                style: 'font-size: 11px;',
+                y_align: Clutter.ActorAlign.CENTER,
+            }));
+        }
+        row.add_child(new St.Widget({
+            style_class: `statusdot-row-dot ${colorClass(status)}`,
+            y_align: Clutter.ActorAlign.CENTER,
+        }));
         container.add_child(row);
     }
 
@@ -679,7 +827,18 @@ export default class StatusDotExtension extends Extension {
         const row = new St.BoxLayout({x_expand: true, style: 'spacing: 6px;'});
         row.add_child(chevron);
         row.add_child(new St.Label({text: group.name, x_expand: true, y_align: Clutter.ActorAlign.CENTER}));
-        row.add_child(new St.Label({text: '●', style_class: colorClass(group.status), y_align: Clutter.ActorAlign.CENTER}));
+        if (group.status !== 'operational' && group.status !== 'unknown') {
+            row.add_child(new St.Label({
+                text: statusLabel(group.status),
+                style_class: colorClass(group.status),
+                style: 'font-size: 11px;',
+                y_align: Clutter.ActorAlign.CENTER,
+            }));
+        }
+        row.add_child(new St.Widget({
+            style_class: `statusdot-row-dot ${colorClass(group.status)}`,
+            y_align: Clutter.ActorAlign.CENTER,
+        }));
 
         const toggleBtn = new St.Button({style_class: 'statusdot-group-toggle', x_expand: true});
         toggleBtn.set_child(row);
@@ -701,8 +860,6 @@ export default class StatusDotExtension extends Extension {
     // ── Incidents ─────────────────────────────────────────────────────────────
 
     _buildIncidentSection(container, incidents) {
-        if (incidents.length === 0) return;
-
         const headerText = incidents.length === 1 ? 'Incident (1)' : `Incidents (${incidents.length})`;
 
         const body = new St.BoxLayout({ vertical: true, x_expand: true });
@@ -737,7 +894,7 @@ export default class StatusDotExtension extends Extension {
             // [●]  Name (bold)
             //      Status · Started X ago
             const nameCol = new St.BoxLayout({ vertical: true, x_expand: true });
-            nameCol.add_child(new St.Label({ text: incident.name, style: 'font-weight: bold;' }));
+            nameCol.add_child(new St.Label({ text: incident.name, style: 'font-weight: bold; font-size: 14px;' }));
             nameCol.add_child(new St.Label({
                 text: `${INCIDENT_STATUS_LABEL[incident.status] ?? incident.status}  ·  Started ${formatRelative(incident.startedAt)}`,
                 style_class: 'dim-label',

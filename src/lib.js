@@ -71,13 +71,13 @@ export function normalizeStatuspage(json, provider) {
 
     for (const c of allComps) {
         if (!c.group || provider.hidden?.has(c.name)) continue;
-        const g = {name: c.name, status: COMPONENT_STATUS_MAP[c.status] ?? 'unknown', children: []};
+        const g = {name: c.name, status: COMPONENT_STATUS_MAP[c.status] ?? 'unknown', description: c.description ?? null, children: []};
         groupMap.set(c.id, g);
         components.push(g);
     }
     for (const c of allComps) {
         if (c.group || provider.hidden?.has(c.name)) continue;
-        const entry = {name: c.name, status: COMPONENT_STATUS_MAP[c.status] ?? 'unknown'};
+        const entry = {name: c.name, status: COMPONENT_STATUS_MAP[c.status] ?? 'unknown', description: c.description ?? null};
         if (c.group_id && groupMap.has(c.group_id))
             groupMap.get(c.group_id).children.push(entry);
         else
