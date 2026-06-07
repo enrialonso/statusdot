@@ -1,4 +1,4 @@
-EXTENSION_UUID = statusdot@enrialonso.dev
+EXTENSION_UUID = statusdot@enrialonso.github.com
 INSTALL_DIR    = $(HOME)/.local/share/gnome-shell/extensions/$(EXTENSION_UUID)
 SRC_DIR        = src
 DIST_DIR       = dist/$(EXTENSION_UUID)
