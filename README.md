@@ -10,7 +10,6 @@ Click to see which ones are affected and why.
 [![GNOME Shell](https://img.shields.io/badge/GNOME_Shell-45–50-4A86CF?logo=gnome&logoColor=white)](https://extensions.gnome.org)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![ESLint](https://img.shields.io/badge/ESLint-passing-4B32C3?logo=eslint&logoColor=white)](eslint.config.js)
-[![Tests](https://img.shields.io/badge/tests-28_passing-brightgreen?logo=vitest&logoColor=white)](tests/)
 
 <br>
 
