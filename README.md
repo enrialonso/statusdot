@@ -8,8 +8,8 @@ A single colored dot in your GNOME panel shows the health of the services you de
 Click to see which ones are affected and why.
 
 [![GNOME Shell](https://img.shields.io/badge/GNOME_Shell-45–50-4A86CF?logo=gnome&logoColor=white)](https://extensions.gnome.org)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![ESLint](https://img.shields.io/badge/ESLint-passing-4B32C3?logo=eslint&logoColor=white)](eslint.config.js)
+[![CI](https://github.com/enrialonso/statusdot/actions/workflows/ci.yml/badge.svg)](https://github.com/enrialonso/statusdot/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-GPL--2.0--or--later-blue)](LICENSE)
 
 <br>
 
@@ -140,4 +140,4 @@ For any service on **Statuspage.io**, add one entry to `src/providers-data.js`:
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+GPL-2.0-or-later — see [LICENSE](LICENSE).
