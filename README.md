@@ -140,4 +140,4 @@ For any service on **Statuspage.io**, add one entry to `src/providers-data.js`:
 
 ## License
 
-GPL-2.0-or-later — see [LICENSE](LICENSE).
+StatusDot is free software, licensed under the GNU General Public License version 2 or (at your option) any later version (GPL-2.0-or-later). See [LICENSE](LICENSE) for the full text.

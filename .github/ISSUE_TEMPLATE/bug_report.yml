@@ -1,0 +1,32 @@
+name: Bug report
+description: Something is not working as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: What you expected and what you saw instead. Screenshots help.
+    validations:
+      required: true
+  - type: input
+    id: gnome-version
+    attributes:
+      label: GNOME Shell version
+      description: Output of `gnome-shell --version`
+      placeholder: GNOME Shell 48.2
+    validations:
+      required: true
+  - type: input
+    id: distro
+    attributes:
+      label: Distribution
+      placeholder: Fedora 42, Ubuntu 25.04…
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Output of `journalctl -o cat /usr/bin/gnome-shell | grep StatusDot`
+      render: text
