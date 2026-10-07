@@ -4,6 +4,7 @@ import Soup from 'gi://Soup';
 import St from 'gi://St';
 import Clutter from 'gi://Clutter';
 import Pango from 'gi://Pango';
+import * as Animation from 'resource:///org/gnome/shell/ui/animation.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
@@ -76,7 +77,6 @@ function formatRelative(date) {
 
 const PANEL_WIDTH      = 440;                          // detail view
 const GRID_PANEL_WIDTH = 32 + 4 * 76 + 3 * 12;        // 372px — always 4-col wide
-const SPINNER_FRAMES   = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 
 export default class StatusDotExtension extends Extension {
@@ -97,9 +97,8 @@ export default class StatusDotExtension extends Extension {
         this._timer               = null;
         this._fetching            = false;
         this._consecutiveErrors   = 0;
-        this._spinnerTimer        = null;
+        this._spinner             = null;
         this._spinnerStopTimer    = null;
-        this._spinnerFrame        = 0;
         this._refreshStart        = 0;
         this._incidentExpanded    = false;
         this._isErrorState        = false;
@@ -159,6 +158,7 @@ export default class StatusDotExtension extends Extension {
         this._dot?.destroy();
         this._refreshLabel?.destroy();
         this._refreshIcon?.destroy();
+        this._spinner?.destroy();
         this._header?.destroy();
         this._gridContainer?.destroy();
         this._content?.destroy();
@@ -186,9 +186,8 @@ export default class StatusDotExtension extends Extension {
         this._session             = null;
         this._fetching            = false;
         this._consecutiveErrors   = 0;
-        this._spinnerTimer        = null;
+        this._spinner             = null;
         this._spinnerStopTimer    = null;
-        this._spinnerFrame        = 0;
         this._refreshStart        = 0;
         this._incidentExpanded    = false;
         this._isErrorState        = false;
@@ -204,9 +203,9 @@ export default class StatusDotExtension extends Extension {
     _buildUI() {
         // ── Panel button ──────────────────────────────────────────────────────
         this._button = new PanelMenu.Button(0.0, 'StatusDot');
-        this._dot = new St.Label({
-            text: '●',
-            style_class: 'status-dot status-gray',
+        this._dot = new St.Icon({
+            gicon: Gio.icon_new_for_string(`${this.path}/icons/status-dot-symbolic.svg`),
+            style_class: 'system-status-icon status-dot status-gray',
             y_align: Clutter.ActorAlign.CENTER,
         });
         this._button.add_child(this._dot);
@@ -265,6 +264,8 @@ export default class StatusDotExtension extends Extension {
         const btnContent = new St.BoxLayout({ style: 'spacing: 6px;' });
         btnContent.add_child(this._refreshLabel);
         btnContent.add_child(this._refreshIcon);
+        this._spinner = new Animation.Spinner(16, {hideOnStop: true});
+        btnContent.add_child(this._spinner);
         this._refreshBtn = new St.Button({ style_class: 'statusdot-refresh-button' });
         this._refreshBtn.set_child(btnContent);
         this._refreshBtnSig = this._refreshBtn.connect('clicked', () => this._refresh(true));
@@ -349,7 +350,7 @@ export default class StatusDotExtension extends Extension {
             return;
         }
         const active = this._activeProviders();
-        this._dot.style_class = `status-dot ${colorClass(this._worstStatus())}`;
+        this._dot.style_class = `system-status-icon status-dot ${colorClass(this._worstStatus())}`;
 
         if (active.length === 0) {
             this._renderNoProviders();
@@ -399,10 +400,8 @@ export default class StatusDotExtension extends Extension {
         // ── Header ────────────────────────────────────────────────────────────
         this._header.destroy_all_children();
         const titleRow = new St.BoxLayout({ style: 'spacing: 8px;' });
-        titleRow.add_child(new St.Label({
-            text: '●',
-            style_class: colorClass(worst),
-            style: 'font-size: 13px;',
+        titleRow.add_child(new St.Widget({
+            style_class: `statusdot-header-dot ${colorClass(worst)}`,
             y_align: Clutter.ActorAlign.CENTER,
         }));
         titleRow.add_child(new St.Label({
@@ -490,10 +489,11 @@ export default class StatusDotExtension extends Extension {
         textCol.add_child(nameLabel);
         textCol.add_child(subRow);
 
-        const chevron = new St.Label({
-            text:    '›',
-            style:   'font-size: 16px; color: rgba(255,255,255,0.38);',
-            y_align: Clutter.ActorAlign.CENTER,
+        const chevron = new St.Icon({
+            icon_name: 'go-next-symbolic',
+            icon_size: 16,
+            style:     'color: rgba(255,255,255,0.38);',
+            y_align:   Clutter.ActorAlign.CENTER,
         });
 
         const contentRow = new St.BoxLayout({ x_expand: true, style: 'spacing: 8px; padding: 10px 10px 10px 8px;' });
@@ -660,7 +660,7 @@ export default class StatusDotExtension extends Extension {
 
     _renderError() {
         this._isErrorState = true;
-        this._dot.style_class = 'status-dot status-gray';
+        this._dot.style_class = 'system-status-icon status-dot status-gray';
 
         this._gridContainer.hide();
         this._scroll.show();
@@ -693,7 +693,7 @@ export default class StatusDotExtension extends Extension {
 
         if (this._activeProviders().length > 1) {
             const backBtn = new St.Button({ style_class: 'statusdot-back-button' });
-            backBtn.set_child(new St.Label({ text: '‹', style: 'font-size: 20px; font-weight: bold;' }));
+            backBtn.set_child(new St.Icon({ icon_name: 'go-previous-symbolic', icon_size: 16 }));
             backBtn.connect('clicked', () => {
                 this._currentProviderId = null;
                 this._renderCurrentView();
@@ -857,7 +857,7 @@ export default class StatusDotExtension extends Extension {
     }
 
     _groupRow(container, group) {
-        const chevron = new St.Label({text: '▸', style_class: 'statusdot-group-chevron', y_align: Clutter.ActorAlign.CENTER});
+        const chevron = new St.Icon({icon_name: 'pan-end-symbolic', icon_size: 12, style_class: 'statusdot-group-chevron', y_align: Clutter.ActorAlign.CENTER});
 
         const row = new St.BoxLayout({x_expand: true, style: 'spacing: 6px;'});
         row.add_child(chevron);
@@ -885,7 +885,7 @@ export default class StatusDotExtension extends Extension {
 
         toggleBtn.connect('clicked', () => {
             childrenBox.visible = !childrenBox.visible;
-            chevron.text = childrenBox.visible ? '▾' : '▸';
+            chevron.icon_name = childrenBox.visible ? 'pan-down-symbolic' : 'pan-end-symbolic';
         });
 
         container.add_child(toggleBtn);
@@ -909,7 +909,7 @@ export default class StatusDotExtension extends Extension {
 
         const toggleRow = new St.BoxLayout({ x_expand: true });
         toggleRow.add_child(new St.Label({ text: headerText, style: 'font-weight: bold; font-size: 13px;', x_expand: true, y_align: Clutter.ActorAlign.CENTER }));
-        const chevron = new St.Label({ text: this._incidentExpanded ? '▾' : '▸', style_class: 'statusdot-incident-chevron', y_align: Clutter.ActorAlign.CENTER });
+        const chevron = new St.Icon({ icon_name: this._incidentExpanded ? 'pan-down-symbolic' : 'pan-end-symbolic', icon_size: 14, style_class: 'statusdot-incident-chevron', y_align: Clutter.ActorAlign.CENTER });
         toggleRow.add_child(chevron);
 
         const toggleBtn = new St.Button({ style_class: 'statusdot-incident-toggle', x_expand: true });
@@ -917,7 +917,7 @@ export default class StatusDotExtension extends Extension {
         toggleBtn.connect('clicked', () => {
             this._incidentExpanded = !this._incidentExpanded;
             scroll.visible = this._incidentExpanded;
-            chevron.text = this._incidentExpanded ? '▾' : '▸';
+            chevron.icon_name = this._incidentExpanded ? 'pan-down-symbolic' : 'pan-end-symbolic';
         });
         container.add_child(toggleBtn);
         container.add_child(scroll);
@@ -926,7 +926,7 @@ export default class StatusDotExtension extends Extension {
             if (i > 0)
                 body.add_child(new St.Widget({ style_class: 'statusdot-separator', x_expand: true, style: 'margin: 6px 0;' }));
 
-            // [●]  Name (bold)
+            // (dot)  Name (bold)
             //      Status · Started X ago
             const nameCol = new St.BoxLayout({ vertical: true, x_expand: true });
             nameCol.add_child(new St.Label({ text: incident.name, style: 'font-weight: bold; font-size: 14px;' }));
@@ -937,7 +937,7 @@ export default class StatusDotExtension extends Extension {
             }));
 
             const nameRow = new St.BoxLayout({ style: 'margin-top: 6px; spacing: 6px;' });
-            nameRow.add_child(new St.Label({ text: '●', style_class: colorClass(incident.impact), y_align: Clutter.ActorAlign.START }));
+            nameRow.add_child(new St.Widget({ style_class: `statusdot-row-dot ${colorClass(incident.impact)}`, style: 'margin-top: 6px;', y_align: Clutter.ActorAlign.START }));
             nameRow.add_child(nameCol);
             body.add_child(nameRow);
 
@@ -963,17 +963,8 @@ export default class StatusDotExtension extends Extension {
         if (!this._refreshBtn) return;
         this._refreshBtn.reactive = false;
         this._refreshStart = Date.now();
-        this._spinnerFrame = 0;
-        this._refreshLabel.text = SPINNER_FRAMES[0];
         this._refreshIcon.hide();
-        if (this._spinnerTimer)
-            GLib.Source.remove(this._spinnerTimer);
-        this._spinnerTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
-            if (!this._refreshLabel) return GLib.SOURCE_REMOVE;
-            this._spinnerFrame = (this._spinnerFrame + 1) % SPINNER_FRAMES.length;
-            this._refreshLabel.text = SPINNER_FRAMES[this._spinnerFrame];
-            return GLib.SOURCE_CONTINUE;
-        });
+        this._spinner.play();
     }
 
     _stopSpinner() {
@@ -981,12 +972,8 @@ export default class StatusDotExtension extends Extension {
             GLib.Source.remove(this._spinnerStopTimer);
             this._spinnerStopTimer = null;
         }
-        if (this._spinnerTimer) {
-            GLib.Source.remove(this._spinnerTimer);
-            this._spinnerTimer = null;
-        }
         if (this._refreshBtn) {
-            this._refreshLabel.text   = 'Refresh';
+            this._spinner.stop();
             this._refreshIcon.show();
             this._refreshBtn.reactive = true;
         }
