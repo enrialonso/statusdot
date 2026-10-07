@@ -966,6 +966,8 @@ export default class StatusDotExtension extends Extension {
         this._spinnerFrame = 0;
         this._refreshLabel.text = SPINNER_FRAMES[0];
         this._refreshIcon.hide();
+        if (this._spinnerTimer)
+            GLib.Source.remove(this._spinnerTimer);
         this._spinnerTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 100, () => {
             if (!this._refreshLabel) return GLib.SOURCE_REMOVE;
             this._spinnerFrame = (this._spinnerFrame + 1) % SPINNER_FRAMES.length;
@@ -1061,21 +1063,26 @@ export default class StatusDotExtension extends Extension {
 
                 if (showSpinner) {
                     const remaining = Math.max(0, 2000 - (Date.now() - this._refreshStart));
-                    if (remaining > 0)
+                    if (remaining > 0) {
+                        if (this._spinnerStopTimer)
+                            GLib.Source.remove(this._spinnerStopTimer);
                         this._spinnerStopTimer = GLib.timeout_add(GLib.PRIORITY_DEFAULT, remaining, () => {
                             this._spinnerStopTimer = null;
                             this._stopSpinner();
                             return GLib.SOURCE_REMOVE;
                         });
-                    else
+                    } else {
                         this._stopSpinner();
+                    }
                 }
             });
         }
     }
 
     _startPolling() {
-        this._timer = GLib.timeout_add_seconds(
+        if (this._timer)
+            GLib.Source.remove(this._timer);
+        this._timer =GLib.timeout_add_seconds(
             GLib.PRIORITY_DEFAULT,
             this._settings?.get_int('poll-interval') ?? 60,
             () => { this._refresh(); return GLib.SOURCE_CONTINUE; }
